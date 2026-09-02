@@ -111,10 +111,12 @@ async def cmd_start(message: Message):
         ]
     )
 
-    await message.answer(
-        "Приветствуем Вас в нашем сервисе!\n"
-        "Для того, чтобы написать нашему менеджеру, нажмите кнопку ниже: ",
-        reply_markup=keyboard
+    async def broadcaster():
+    await asyncio.sleep(30)  # даём боту запуститься
+    text = (
+        "🔔 <b>Напоминание</b>\n\n"
+        "Не тяни время ⏳\n"
+        "<b>Пиши менеджеру прямо сейчас</b> 👇"
     )
 
 
