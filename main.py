@@ -14,17 +14,14 @@ if not TOKEN:
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
 DB_FILE = "users.db"
-
 
 # ── Инициализация и миграция базы данных ─────────────────────────────────
 def init_db():
     """Создаёт таблицу и добавляет недостающие колонки (миграция)"""
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
-
-    # Создаём таблицу, если её нет
+    
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -33,29 +30,27 @@ def init_db():
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-
-    # Миграция: добавляем колонки, если их ещё нет (для старых баз)
+    
+    # Миграция
     try:
         cur.execute("ALTER TABLE users ADD COLUMN username TEXT")
         logging.info("Добавлена колонка 'username'")
     except sqlite3.OperationalError:
-        pass  # колонка уже существует
+        pass
 
     try:
         cur.execute("ALTER TABLE users ADD COLUMN first_name TEXT")
         logging.info("Добавлена колонка 'first_name'")
     except sqlite3.OperationalError:
-        pass  # колонка уже существует
+        pass
 
     conn.commit()
     conn.close()
-
 
 def save_user(user_id: int, username: str = None, first_name: str = None):
     """Сохраняет или обновляет пользователя"""
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
-
     try:
         cur.execute("""
             INSERT INTO users (user_id, username, first_name)
@@ -64,14 +59,12 @@ def save_user(user_id: int, username: str = None, first_name: str = None):
                 username = excluded.username,
                 first_name = excluded.first_name
         """, (user_id, username, first_name))
-
         conn.commit()
         logging.debug(f"Пользователь {user_id} (@{username}) сохранён/обновлён")
     except Exception as e:
         logging.error(f"Ошибка при сохранении пользователя {user_id}: {e}")
     finally:
         conn.close()
-
 
 def get_all_users() -> list[int]:
     """Возвращает список всех user_id"""
@@ -86,19 +79,14 @@ def get_all_users() -> list[int]:
     finally:
         conn.close()
 
-
 # ── Инициализация БД ─────────────────────────────────────────────────────
 init_db()
-
 
 # ── Хендлеры ─────────────────────────────────────────────────────────────
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     user = message.from_user
-    username = user.username
-    first_name = user.first_name
-
-    save_user(user.id, username, first_name)
+    save_user(user.id, user.username, user.first_name)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -111,28 +99,25 @@ async def cmd_start(message: Message):
         ]
     )
 
-    async def broadcaster():
+    await message.answer(
+        "Привет! 👋\nНажми кнопку ниже, чтобы написать менеджеру:",
+        reply_markup=keyboard
+    )
+
+@dp.message()
+async def echo(message: Message):
+    await message.answer(f"Ты написал: {message.text}")
+
+# ── Рассылка каждые 3 часа ──────────────────────────────────────────────
+async def broadcaster():
     await asyncio.sleep(30)  # даём боту запуститься
+
     text = (
         "🔔 <b>Напоминание</b>\n\n"
         "Не тяни время ⏳\n"
         "<b>Пиши менеджеру прямо сейчас</b> 👇"
     )
 
-
-@dp.message()
-async def echo(message: Message):
-    await message.answer(f"Ты написал: {message.text}")
-
-
-# ── Рассылка каждые 3 часа ──────────────────────────────────────────────
-async def broadcaster():
-    await asyncio.sleep(30)  # даём боту запуститься
-  text = (
-    "🔔 <b>Напоминание</b>\n\n"
-    "Не тяни время ⏳\n"
-    "<b>Пиши менеджеру прямо сейчас</b> 👇"
-)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -154,13 +139,14 @@ async def broadcaster():
         for user_id in users:
             try:
                 await bot.send_message(
-                    user_id,
-                    text,
+                    chat_id=user_id,
+                    text=text,
                     reply_markup=keyboard,
+                    parse_mode="HTML",          # ← важно!
                     disable_notification=True
                 )
                 sent_count += 1
-                await asyncio.sleep(0.07)  # ~14 msg/sec — безопасный лимит
+                await asyncio.sleep(0.07)       # ~14 сообщений в секунду
             except Exception as e:
                 err_str = str(e).lower()
                 if "blocked" in err_str or "forbidden" in err_str or "chat not found" in err_str:
@@ -168,17 +154,14 @@ async def broadcaster():
                 logging.warning(f"Не удалось отправить {user_id}: {e}")
 
         logging.info(f"Рассылка завершена: отправлено {sent_count}, заблокировали/ошибок {blocked_count}")
-        await asyncio.sleep(10800)  # 3 часа = 10800 секунд
-
+        await asyncio.sleep(10800)  # 3 часа
 
 # ── Запуск ───────────────────────────────────────────────────────────────
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
-    asyncio.create_task(broadcaster())  # фоновая рассылка
-
+    asyncio.create_task(broadcaster())
     logging.info("Бот запущен • polling + рассылка каждые 3 часа")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
